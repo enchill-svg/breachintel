@@ -47,6 +47,7 @@ Thumbs.db
 
 # Coverage reports
 .coverage
+.coverage*
 htmlcov/
 
 # Log files (when created)
