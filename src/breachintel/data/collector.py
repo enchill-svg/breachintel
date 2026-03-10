@@ -106,7 +106,6 @@ class BreachDataCollector:
             dates = pd.to_datetime(
                 df["Breach Submission Date"],
                 errors="coerce",
-                infer_datetime_format=True,
             )
             if dates.notna().any():
                 min_year = dates.dt.year.min()

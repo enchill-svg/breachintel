@@ -53,7 +53,7 @@ class BreachForecaster:
 
         monthly = (
             df_dt.set_index("breach_date")
-            .resample("M")
+            .resample("ME")
             .size()
             .rename("y")
             .reset_index()

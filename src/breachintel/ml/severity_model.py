@@ -71,6 +71,8 @@ class SeverityModel:
             "description",
             "state",
             "year_month",
+            "quarter",
+            "day_of_week",
         }
 
         cols_to_use: List[str] = []

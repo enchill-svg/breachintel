@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  breachintel:
+    build: .
+    container_name: breachintel
+    ports:
+      - "8501:8501"
+    environment:
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
