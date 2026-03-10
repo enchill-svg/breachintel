@@ -38,3 +38,9 @@ ignore = ["S101"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=src/breachintel --cov-report=term-missing --cov-fail-under=80"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
