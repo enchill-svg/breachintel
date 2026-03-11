@@ -88,6 +88,22 @@ class BreachForecaster:
 
         return forecast
 
+    def generate_forecast(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Generate forecast from an already-fitted model (e.g. after load()).
+        Does not fit; only prepares history, extends future, and predicts.
+        """
+        history = self.prepare_data(df)
+        if history.empty:
+            raise ValueError("No historical data available for forecast.")
+        future = self.model.make_future_dataframe(
+            periods=self.forecast_months,
+            freq="ME",
+        )
+        forecast = self.model.predict(future)
+        self._forecast_df = forecast
+        return forecast
+
     def get_forecast_summary(self) -> Dict[str, Any]:
         """
         Summarize the forecasted period only.

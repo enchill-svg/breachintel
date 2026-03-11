@@ -69,6 +69,13 @@ class BreachDataCleaner:
         return df
 
     def _normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normalize raw HHS column names to internal snake_case.
+
+        NOTE: The HHS OCR export uses 'Breach Submission Date' for the timestamp field.
+        In the cleaned dataset we standardize this to 'breach_date' and treat it as the
+        canonical breach submission date throughout the application.
+        """
         rename_map = {
             "Name of Covered Entity": "entity_name",
             "State": "state",
@@ -152,11 +159,12 @@ class BreachDataCleaner:
         logger.info("Standardizing entity types.")
         df["entity_type_raw"] = df["entity_type"]
 
+        # Normalize to upper-case so it matches ENTITY_TYPE_MAP keys
         normalized = (
             df["entity_type"]
             .astype(str)
             .str.strip()
-            .str.title()
+            .str.upper()
         )
         mapped = normalized.map(ENTITY_TYPE_MAP)
         df["entity_type"] = mapped.fillna("Other")

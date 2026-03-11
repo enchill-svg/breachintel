@@ -130,13 +130,23 @@ class TrendAnalyzer:
 
         return grouped
 
-    def detect_inflection_points(self, monthly: pd.DataFrame) -> List[Dict[str, Any]]:
+    def detect_inflection_points(
+        self,
+        monthly: pd.DataFrame,
+        min_persist_months: int = 3,
+        min_rate_of_change: float = 2.0,
+        max_points: int = 5,
+    ) -> List[Dict[str, Any]]:
         """
         Detect inflection points in the 12-month moving average (ma_12).
 
-        - Computes the rate of change of ma_12.
-        - Finds where the sign of the change reverses (up -> down or down -> up).
-        - Returns a list of dicts with:
+        - Only counts a turn where the new direction persists for at least
+          min_persist_months consecutive months.
+        - Only includes points where the absolute rate of change of the MA
+          exceeds min_rate_of_change (breaches/month).
+        - Returns at most max_points, ordered by absolute magnitude of change.
+
+        Returns a list of dicts with:
           * date: timestamp of inflection
           * breach_count_ma: ma_12 value at that point
           * direction: "up" if trend turns upward, "down" if turns downward
@@ -145,37 +155,46 @@ class TrendAnalyzer:
             raise KeyError("monthly DataFrame must contain an 'ma_12' column.")
 
         ma = monthly["ma_12"]
-        # Rate of change (first difference)
         delta = ma.diff()
-
-        # Sign of change: -1 (down), 0 (flat), 1 (up)
         sign = np.sign(delta)
 
         inflections: List[Dict[str, Any]] = []
-        # Iterate from second point onward to compare with prior sign
-        for i in range(1, len(sign)):
+        n = len(sign)
+        # Need room for at least min_persist_months after index i
+        for i in range(1, n - min_persist_months):
             prev_sign = sign.iloc[i - 1]
             curr_sign = sign.iloc[i]
-
-            # Ignore periods where either side is NaN or flat (0)
-            if np.isnan(prev_sign) or np.isnan(curr_sign):
+            if np.isnan(prev_sign) or np.isnan(curr_sign) or prev_sign == 0 or curr_sign == 0:
                 continue
-            if prev_sign == 0 or curr_sign == 0:
+            if curr_sign == prev_sign:
                 continue
+            # Direction change: check that new direction persists
+            persist_ok = True
+            for k in range(1, min_persist_months + 1):
+                s = sign.iloc[i + k]
+                if np.isnan(s) or s == 0 or s != curr_sign:
+                    persist_ok = False
+                    break
+            if not persist_ok:
+                continue
+            abs_delta = abs(delta.iloc[i])
+            if abs_delta < min_rate_of_change:
+                continue
+            ts = monthly.index[i]
+            value = ma.iloc[i]
+            direction = "up" if curr_sign > 0 else "down"
+            inflections.append({
+                "date": ts,
+                "breach_count_ma": float(value) if pd.notna(value) else np.nan,
+                "direction": direction,
+                "_abs_rate": abs_delta,
+            })
 
-            if curr_sign != prev_sign:
-                ts = monthly.index[i]
-                value = ma.iloc[i]
-                direction = "up" if curr_sign > 0 else "down"
-                inflections.append(
-                    {
-                        "date": ts,
-                        "breach_count_ma": float(value) if pd.notna(value) else np.nan,
-                        "direction": direction,
-                    }
-                )
-
-        return inflections
+        inflections.sort(key=lambda x: x["_abs_rate"], reverse=True)
+        result = inflections[:max_points]
+        for d in result:
+            d.pop("_abs_rate", None)
+        return result
 
     def compute_headline_metrics(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -193,12 +212,22 @@ class TrendAnalyzer:
         if df_dt["year"].isna().all():
             raise ValueError("All derived 'year' values are NaN; check 'breach_date' parsing.")
 
+        # Current year is the most recent year in the data
         current_year = int(df_dt["year"].max())
-
-        yearly_counts = df_dt.groupby("year").size()
-        current_year_breaches = int(yearly_counts.get(current_year, 0))
         previous_year = current_year - 1
-        previous_year_breaches = int(yearly_counts.get(previous_year, 0))
+
+        # Compare the same calendar window: Jan 1 to Feb 12 of each year
+        start_month_day = (1, 1)
+        end_month_day = (2, 12)
+
+        def _window_count(year: int) -> int:
+            start = pd.Timestamp(year=year, month=start_month_day[0], day=start_month_day[1])
+            end = pd.Timestamp(year=year, month=end_month_day[0], day=end_month_day[1])
+            mask = (df_dt["breach_date"] >= start) & (df_dt["breach_date"] <= end)
+            return int(mask.sum())
+
+        current_year_breaches = _window_count(current_year)
+        previous_year_breaches = _window_count(previous_year) if (df_dt["year"] == previous_year).any() else 0
 
         if previous_year_breaches > 0:
             yoy_change_pct = round(

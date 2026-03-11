@@ -7,7 +7,11 @@ from breachintel.utils.cache import load_data
 from breachintel.ml.forecaster import BreachForecaster
 from breachintel.visualization.charts import create_forecast_chart
 
-from app.components.filters import render_sidebar_filters
+from app.components.filters import (
+    configure_time_filters,
+    render_active_filter_bar,
+    render_sidebar_filters,
+)
 from app.components.footer import render_footer
 
 
@@ -47,15 +51,44 @@ def load_or_train_forecaster(df: pd.DataFrame) -> BreachForecaster:
 def main() -> None:
     st.title("🔮 Breach Forecast")
     st.caption(
-        "Forecast monthly healthcare breach volumes using a Prophet-based time-series model."
+        "This page projects monthly breach volumes for the next 24 months. Use it to understand "
+        "the direction and range of likely breach activity, not as a precise prediction."
     )
 
     df = get_data()
-    filtered_df = render_sidebar_filters(df)
+
+    # Top-of-page time controls
+    time_filtered_df, time_meta = configure_time_filters(df)
+
+    # Sidebar filters (breach type, entity type, geography)
+    filtered_df, filter_state = render_sidebar_filters(time_filtered_df)
+
+    # Contextual time summary + active filter chips
+    if time_meta:
+        start = time_meta.get("start_date")
+        end = time_meta.get("end_date")
+        total_incidents = time_meta.get("total_incidents", len(time_filtered_df))
+        st.caption(
+            f"Showing breaches from **{start}** to **{end}** "
+            f"({int(total_incidents):,} incidents before additional filters)."
+        )
+
+    render_active_filter_bar(time_meta, filter_state)
 
     try:
         forecaster = load_or_train_forecaster(filtered_df)
-        forecast_df = forecaster.train_and_forecast(filtered_df)
+        # Use existing forecast if already trained; otherwise predict from fitted model (no fit)
+        if forecaster._forecast_df is not None:
+            forecast_df = forecaster._forecast_df
+        else:
+            # Loaded from disk: prepare history, extend future, predict (Prophet allows only one fit)
+            forecaster.prepare_data(filtered_df)
+            future = forecaster.model.make_future_dataframe(
+                periods=forecaster.forecast_months,
+                freq="ME",
+            )
+            forecast_df = forecaster.model.predict(future)
+            forecaster._forecast_df = forecast_df
         summary = forecaster.get_forecast_summary()
     except Exception as exc:
         st.warning(
@@ -83,6 +116,30 @@ def main() -> None:
     )
     st.plotly_chart(fig, use_container_width=True)
 
+    # Narrative under forecast chart
+    future_mask = forecast_chart_df["date"] > history["date"].max()
+    future = forecast_chart_df.loc[future_mask]
+    if not future.empty and len(future) >= 6:
+        yhat = future["forecast"]
+        lo, hi = float(yhat.min()), float(yhat.max())
+        start = future["date"].min().date()
+        end = future["date"].max().date()
+        direction = summary["trend_direction"]
+        text = (
+            f"Over the next 24 months (**{start}–{end}**), predicted monthly breaches range "
+            f"from **{lo:.1f}** to **{hi:.1f}** incidents, with an overall **{direction}** trend."
+        )
+    else:
+        text = (
+            "Forecast horizon is too short to summarize; try expanding the time range or ensuring "
+            "sufficient historical data is available."
+        )
+
+    st.markdown(
+        f"<p style='color:#9CA3AF;font-size:0.85rem;'>{text}</p>",
+        unsafe_allow_html=True,
+    )
+
     # Summary metrics
     st.subheader("Forecast Summary")
     col1, col2, col3 = st.columns(3)
@@ -91,6 +148,7 @@ def main() -> None:
         st.metric(
             label="Avg predicted monthly breaches",
             value=f"{summary['avg_predicted_monthly']:.1f}",
+            help="Average of the model’s monthly forecasts over the next 24 months.",
         )
     with col2:
         st.metric(
@@ -101,6 +159,7 @@ def main() -> None:
         st.metric(
             label="Trend direction",
             value=summary["trend_direction"].title(),
+            help="Whether predicted breach counts trend up or down across the forecast window.",
         )
 
     # Interpretation / caveats

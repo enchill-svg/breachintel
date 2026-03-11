@@ -19,30 +19,33 @@ def render_kpi_card(
 
     delta_html = ""
     if delta is not None:
-        label_part = f"<span style='opacity:0.8;'>{delta_label}</span> " if delta_label else ""
-        delta_html = f"""
-        <div style="font-size:0.8rem; color:{COLORS['text_secondary']}; margin-top:0.25rem;">
-            {label_part}<span>{delta}</span>
-        </div>
-        """
+        label_part = (
+            f"<span style='opacity:0.8;'>{delta_label}</span> "
+            if delta_label
+            else ""
+        )
+        delta_html = (
+            f"<div style=\"font-size:0.8rem; color:{COLORS['text_secondary']}; "
+            f"margin-top:0.25rem;\">{label_part}<span>{delta}</span></div>"
+        )
 
-    card_html = f"""
-    <div style="
-        background-color:{COLORS['bg_card']};
-        border:1px solid {border_color}33;
-        border-radius:0.75rem;
-        padding:0.9rem 1rem;
-        box-shadow:0 10px 20px rgba(15,23,42,0.45);
-    ">
-        <div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:{COLORS['text_secondary']};">
-            {title}
-        </div>
-        <div style="font-size:1.4rem; font-weight:600; color:{COLORS['text_primary']}; margin-top:0.25rem;">
-            {value}
-        </div>
-        {delta_html}
-    </div>
-    """
+    card_html = (
+        f"<div style=\""
+        f"background-color:{COLORS['bg_card']};"
+        f"border:1px solid {border_color}33;"
+        f"border-radius:0.75rem;"
+        f"padding:0.9rem 1rem;"
+        f"box-shadow:0 10px 20px rgba(15,23,42,0.45);"
+        f"\">"
+        f"<div style=\"font-size:0.8rem; text-transform:uppercase; "
+        f"letter-spacing:0.08em; color:{COLORS['text_secondary']};\">"
+        f"{title}</div>"
+        f"<div style=\"font-size:1.4rem; font-weight:600; "
+        f"color:{COLORS['text_primary']}; margin-top:0.25rem;\">"
+        f"{value}</div>"
+        f"{delta_html}"
+        f"</div>"
+    )
     st.markdown(card_html, unsafe_allow_html=True)
 
 
@@ -57,20 +60,20 @@ def render_severity_badge(severity: str) -> str:
     }
     bg = color_map.get(severity, COLORS["info"])
 
-    return f"""
-    <span style="
-        display:inline-flex;
-        align-items:center;
-        padding:0.15rem 0.5rem;
-        border-radius:999px;
-        font-size:0.75rem;
-        font-weight:500;
-        background-color:{bg}33;
-        color:{bg};
-        text-transform:uppercase;
-        letter-spacing:0.06em;
-    ">
-        {severity or "Unknown"}
-    </span>
-    """
+    return (
+        f"<span style=\""
+        f"display:inline-flex;"
+        f"align-items:center;"
+        f"padding:0.15rem 0.5rem;"
+        f"border-radius:999px;"
+        f"font-size:0.75rem;"
+        f"font-weight:500;"
+        f"background-color:{bg}33;"
+        f"color:{bg};"
+        f"text-transform:uppercase;"
+        f"letter-spacing:0.06em;"
+        f"\">"
+        f"{severity or 'Unknown'}"
+        f"</span>"
+    )
 

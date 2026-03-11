@@ -10,7 +10,11 @@ from breachintel.ml.severity_model import SeverityModel
 from breachintel.ml.risk_scorer import RiskScorer
 from breachintel.ml.explainer import SeverityExplainer
 
-from app.components.filters import render_sidebar_filters
+from app.components.filters import (
+    configure_time_filters,
+    render_active_filter_bar,
+    render_sidebar_filters,
+)
 from app.components.footer import render_footer
 from app.components.metrics import render_severity_badge
 
@@ -84,7 +88,24 @@ def main() -> None:
 
     df = get_data()
     # Use filters only for deriving available choices; prediction itself is independent
-    filtered_df = render_sidebar_filters(df)
+
+    # Top-of-page time controls
+    time_filtered_df, time_meta = configure_time_filters(df)
+
+    # Sidebar filters (breach type, entity type, geography)
+    filtered_df, filter_state = render_sidebar_filters(time_filtered_df)
+
+    # Contextual time summary + active filter chips
+    if time_meta:
+        start = time_meta.get("start_date")
+        end = time_meta.get("end_date")
+        total_incidents = time_meta.get("total_incidents", len(time_filtered_df))
+        st.caption(
+            f"Showing breaches from **{start}** to **{end}** "
+            f"({int(total_incidents):,} incidents before additional filters)."
+        )
+
+    render_active_filter_bar(time_meta, filter_state)
 
     model = load_severity_model()
     if model is None or model.feature_columns is None:
@@ -182,38 +203,30 @@ def main() -> None:
                 help=risk.get("interpretation", ""),
             )
 
-        # SHAP explanation
+        # Model explanation (feature importance proxy)
         st.markdown("---")
         st.subheader("Why did the model predict this severity?")
 
-        try:
-            explainer = SeverityExplainer(model=model.model, feature_columns=model.feature_columns)
-            shap_info = explainer.explain_single(X_df.iloc[0])
-            top_features = shap_info["top_contributing_features"]
-            if top_features:
-                top_features = sorted(
-                    top_features,
-                    key=lambda x: abs(x["shap_value"]),
-                    reverse=True,
-                )[:5]
-
-                expl_cols = st.columns(len(top_features))
-                for col, feat in zip(expl_cols, top_features):
-                    with col:
-                        st.metric(
-                            label=feat["feature"],
-                            value=f"{feat['shap_value']:+.3f}",
-                        )
-            else:
-                st.info(
-                    "SHAP could not identify top contributing features for this prediction.",
-                    icon="ℹ️",
+        importances = getattr(model.model, "feature_importances_", None)
+        if importances is not None and model.feature_columns:
+            feat_df = (
+                pd.DataFrame(
+                    {"feature": model.feature_columns, "importance": importances}
                 )
-        except Exception:
-            st.warning(
-                "SHAP explanation is unavailable. Ensure SHAP is installed and model artifacts "
-                "were trained with compatible settings.",
-                icon="⚠️",
+                .sort_values("importance", ascending=False)
+                .head(5)
+            )
+            cols = st.columns(len(feat_df))
+            for col, (_, row_feat) in zip(cols, feat_df.iterrows()):
+                with col:
+                    st.metric(
+                        label=row_feat["feature"],
+                        value=f"{row_feat['importance']:.3f}",
+                    )
+        else:
+            st.info(
+                "Feature importances are not available for this model type.",
+                icon="ℹ️",
             )
 
     render_footer()
