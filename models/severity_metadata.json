@@ -1,0 +1,128 @@
+{
+  "model_type": "RandomForestClassifier",
+  "n_estimators": 200,
+  "max_depth": 15,
+  "n_features": 22,
+  "n_samples_train": 5954,
+  "n_samples_test": 1489,
+  "class_distribution": {
+    "Medium": 5259,
+    "Low": 1433,
+    "High": 751
+  },
+  "cv_f1_mean": 0.5334,
+  "cv_f1_std": 0.0127,
+  "test_classification_report": {
+    "0": {
+      "precision": 0.20902612826603326,
+      "recall": 0.5866666666666667,
+      "f1-score": 0.30823117338003503,
+      "support": 150.0
+    },
+    "1": {
+      "precision": 0.3265822784810127,
+      "recall": 0.44947735191637633,
+      "f1-score": 0.3782991202346041,
+      "support": 287.0
+    },
+    "2": {
+      "precision": 0.7592867756315007,
+      "recall": 0.48574144486692017,
+      "f1-score": 0.592463768115942,
+      "support": 1052.0
+    },
+    "accuracy": 0.4889187374076561,
+    "macro avg": {
+      "precision": 0.43163172745951556,
+      "recall": 0.5072951544833211,
+      "f1-score": 0.42633135391019367,
+      "support": 1489.0
+    },
+    "weighted avg": {
+      "precision": 0.620451793907518,
+      "recall": 0.4889187374076561,
+      "f1-score": 0.5225509788934235,
+      "support": 1489.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      88,
+      7,
+      55
+    ],
+    [
+      51,
+      129,
+      107
+    ],
+    [
+      282,
+      259,
+      511
+    ]
+  ],
+  "top_15_features": [
+    {
+      "feature": "state_prior_breach_count",
+      "importance": 0.17745204802921558
+    },
+    {
+      "feature": "year",
+      "importance": 0.13449970158076022
+    },
+    {
+      "feature": "state_avg_breach_size",
+      "importance": 0.13311632597778533
+    },
+    {
+      "feature": "location_Network Server",
+      "importance": 0.12322628203558122
+    },
+    {
+      "feature": "breach_Hacking/IT Incident",
+      "importance": 0.11242880753262292
+    },
+    {
+      "feature": "month_cos",
+      "importance": 0.06870904684299435
+    },
+    {
+      "feature": "month_sin",
+      "importance": 0.06814789083418384
+    },
+    {
+      "feature": "breach_Unauthorized Access/Disclosure",
+      "importance": 0.03950196486318201
+    },
+    {
+      "feature": "location_Paper/Films",
+      "importance": 0.029466086127027696
+    },
+    {
+      "feature": "has_business_associate",
+      "importance": 0.026846503673356385
+    },
+    {
+      "feature": "location_Email",
+      "importance": 0.02190360903556793
+    },
+    {
+      "feature": "breach_Theft",
+      "importance": 0.017095111957792234
+    },
+    {
+      "feature": "location_Portable Device",
+      "importance": 0.009550144819124935
+    },
+    {
+      "feature": "location_EMR",
+      "importance": 0.008481697876972442
+    },
+    {
+      "feature": "location_Desktop",
+      "importance": 0.00759276446838175
+    }
+  ],
+  "trained_at": "2026-03-10T20:51:58.022227+00:00"
+}
