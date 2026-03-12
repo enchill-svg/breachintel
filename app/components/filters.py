@@ -91,6 +91,8 @@ def _reset_sidebar_filters() -> None:
     """
     for key in ["Breach type", "Entity type", "State"]:
         if key in st.session_state:
+            # Remove the key entirely so the widget falls back to its default
+            # (which for these multiselects is an empty selection = "show all").
             del st.session_state[key]
     # No explicit st.rerun() here: the button click that invokes this callback
     # already triggers a script rerun, so clearing the keys is sufficient.
@@ -123,7 +125,6 @@ def render_sidebar_filters(
         selected_breach_types = st.sidebar.multiselect(
             "Select breach types",
             options=all_breach_types,
-            default=[],
             key="Breach type",
             label_visibility="collapsed",
         )
@@ -141,7 +142,6 @@ def render_sidebar_filters(
         selected_entity_types = st.sidebar.multiselect(
             "Select entity types",
             options=all_entity_types,
-            default=[],
             key="Entity type",
             label_visibility="collapsed",
         )
@@ -157,7 +157,6 @@ def render_sidebar_filters(
         selected_states = st.sidebar.multiselect(
             "State",
             options=all_states,
-            default=[],
             key="State",
         )
         if not selected_states:
