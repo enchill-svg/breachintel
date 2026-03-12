@@ -123,10 +123,12 @@ def render_sidebar_filters(
         selected_breach_types = st.sidebar.multiselect(
             "Select breach types",
             options=all_breach_types,
-            default=all_breach_types,
+            default=[],
             key="Breach type",
             label_visibility="collapsed",
         )
+        if not selected_breach_types:
+            st.sidebar.caption("Showing all")
         if selected_breach_types:
             data = data[data["breach_type"].isin(selected_breach_types)]
 
@@ -139,10 +141,12 @@ def render_sidebar_filters(
         selected_entity_types = st.sidebar.multiselect(
             "Select entity types",
             options=all_entity_types,
-            default=all_entity_types,
+            default=[],
             key="Entity type",
             label_visibility="collapsed",
         )
+        if not selected_entity_types:
+            st.sidebar.caption("Showing all")
         if selected_entity_types:
             data = data[data["entity_type"].isin(selected_entity_types)]
 
@@ -153,9 +157,11 @@ def render_sidebar_filters(
         selected_states = st.sidebar.multiselect(
             "State",
             options=all_states,
-            default=all_states,
+            default=[],
             key="State",
         )
+        if not selected_states:
+            st.sidebar.caption("Showing all")
         if selected_states:
             data = data[data["state"].isin(selected_states)]
 
