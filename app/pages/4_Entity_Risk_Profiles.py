@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+from pathlib import Path
+import sys
 
 from breachintel.utils.cache import load_data
 from breachintel.analysis.entity_profiling import EntityProfiler
@@ -9,6 +11,13 @@ from breachintel.visualization.charts import (
     create_entity_comparison,
     create_breach_type_area,
 )
+
+# Ensure the project root (which contains the `app` package) is on sys.path so
+# imports like `from app.components ...` work when the working directory is not
+# the repository root (e.g., Streamlit Cloud).
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.components.filters import (
     configure_time_filters,

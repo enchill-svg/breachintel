@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Dict
+from pathlib import Path
+import sys
 
 import pandas as pd
 import streamlit as st
@@ -12,6 +14,13 @@ from breachintel.visualization.charts import (
     create_yoy_growth,
     create_breach_type_area,
 )
+
+# Ensure the project root (which contains the `app` package) is on sys.path so
+# imports like `from app.components ...` work in environments where the working
+# directory is not the repository root (e.g., Streamlit Cloud).
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.components.filters import (
     configure_time_filters,

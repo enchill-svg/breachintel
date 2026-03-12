@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from pathlib import Path
+import sys
 
 import pandas as pd
 import plotly.express as px
@@ -10,6 +12,13 @@ from breachintel.utils.cache import load_data
 from breachintel.ml.severity_model import SeverityModel
 from breachintel.ml.risk_scorer import RiskScorer
 from breachintel.ml.explainer import SeverityExplainer
+
+# Ensure the project root (which contains the `app` package) is on sys.path so
+# imports like `from app.components ...` work when the working directory is not
+# the repository root (e.g., Streamlit Cloud).
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.components.filters import (
     configure_time_filters,
