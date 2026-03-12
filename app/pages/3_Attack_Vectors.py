@@ -31,16 +31,12 @@ def get_data() -> pd.DataFrame:
 
 def main() -> None:
     st.title("⚔️ Attack Vector Analysis")
-    st.caption(
-        "This page focuses on breach types and locations (for example, Network Server or Email). "
-        "The KPIs and charts update as you change the date range and other filters."
-    )
 
     df = get_data()
 
-    # Top-of-page time controls
-    time_filtered_df, time_meta = configure_time_filters(df)
-
+    # Sidebar: date range first, then breach/entity/geography (same as Home)
+    st.sidebar.header("Filters")
+    time_filtered_df, time_meta = configure_time_filters(df, in_sidebar=True)
     # Sidebar filters (breach type, entity type, geography)
     filtered_df, filter_state = render_sidebar_filters(time_filtered_df)
 
@@ -99,8 +95,6 @@ def main() -> None:
                 delta=f"{top_loc_count:,} breaches",
             )
 
-    render_active_filter_bar(time_meta, filter_state)
-
     # Key insight callout
     total_pct = vector_summary["percentage"].sum()
     hacking_pct = (
@@ -123,19 +117,42 @@ def main() -> None:
     # Breach type summary table
     st.subheader("Breach Type Summary")
     summary_display = vector_summary.copy()
+    # Round key metrics for readability
+    summary_display["avg_affected"] = summary_display["avg_affected"].round(0)
+    summary_display["median_affected"] = summary_display["median_affected"].round(0)
     summary_display["percentage"] = summary_display["percentage"].round(1)
+    # Move breach_type out of the index and apply human-readable column names
+    summary_display = (
+        summary_display.reset_index()
+        .rename(
+            columns={
+                "breach_type": "Breach Type",
+                "count": "Count",
+                "total_affected": "Total Affected",
+                "avg_affected": "Avg Affected",
+                "median_affected": "Median Affected",
+                "max_affected": "Max Affected",
+                "percentage": "Percentage",
+            }
+        )
+    )
+    # Ensure Percentage column stays numeric so Styler format strings work reliably
+    summary_display["Percentage"] = pd.to_numeric(
+        summary_display["Percentage"], errors="coerce"
+    )
     st.dataframe(
         summary_display.style.format(
             {
-                "count": "{:,.0f}",
-                "total_affected": "{:,.0f}",
-                "avg_affected": "{:,.1f}",
-                "median_affected": "{:,.1f}",
-                "max_affected": "{:,.0f}",
-                "percentage": "{:.1f}%",
+                "Count": "{:,.0f}",
+                "Total Affected": "{:,.0f}",
+                "Avg Affected": "{:,.0f}",
+                "Median Affected": "{:,.0f}",
+                "Max Affected": "{:,.0f}",
+                "Percentage": "{:.1f}%",
             }
         ),
         use_container_width=True,
+        hide_index=True,
     )
 
     st.markdown("---")
@@ -176,13 +193,10 @@ def main() -> None:
             if not start_row.empty and not end_row.empty:
                 start_pct = float(start_row["percentage"].iloc[0])
                 end_pct = float(end_row["percentage"].iloc[0])
-                text = (
-                    f"From **{start_year}** to **{end_year}**, **{target_type}** incidents changed "
-                    f"from **{start_pct:.1f}%** to **{end_pct:.1f}%** of all breaches in this time window."
-                )
+                # Render as plain markdown so the bold formatting displays correctly.
                 st.markdown(
-                    f"<p style='color:#9CA3AF;font-size:0.85rem;'>{text}</p>",
-                    unsafe_allow_html=True,
+                    f"From **{start_year}** to **{end_year}**, **{target_type}** incidents changed "
+                    f"from **{start_pct:.1f}%** to **{end_pct:.1f}%** of all breaches in this time window.",
                 )
 
     st.markdown("---")
@@ -194,14 +208,42 @@ def main() -> None:
         .rename(columns={"breach_location": "entity_type", "count": "breach_count"})
     )
     fig_location = create_entity_comparison(location_summary)
+    # Replace database-style labels with plain language for this chart.
+    # Clear the Plotly title to avoid duplicating the Streamlit subheader.
+    fig_location.update_layout(
+        title_text="",
+        xaxis_title="Number of Breaches",
+        yaxis_title="Breach Location",
+        legend_title_text="Location",
+    )
     st.plotly_chart(fig_location, use_container_width=True)
 
     # Severity matrix as styled table
     st.subheader("Severity Matrix (Breach Type × Severity)")
-    severity_display = severity_matrix.copy()
+    severity_display = severity_matrix.copy().reset_index()
+    severity_display = severity_display.rename(columns={"breach_type": "Breach Type"})
+
+    # Reorder severity columns to logical order: Low, Medium, High, Critical, Total
+    desired_cols = ["Low", "Medium", "High", "Critical", "Total"]
+    ordered_severity_cols = [c for c in desired_cols if c in severity_display.columns]
+    # Preserve "Breach Type" as the first column, followed by ordered severity columns
+    other_cols = [
+        c
+        for c in severity_display.columns
+        if c not in ordered_severity_cols and c != "Breach Type"
+    ]
+    new_column_order = ["Breach Type"] + ordered_severity_cols + other_cols
+    severity_display = severity_display[new_column_order]
+
+    # Only apply numeric formatting to numeric columns to avoid ValueError on string columns
+    numeric_cols = [
+        c for c in severity_display.columns if c != "Breach Type"
+    ]
+    format_map = {c: "{:,.0f}" for c in numeric_cols}
     st.dataframe(
-        severity_display.style.format("{:,.0f}"),
+        severity_display.style.format(format_map),
         use_container_width=True,
+        hide_index=True,
     )
 
     render_footer()

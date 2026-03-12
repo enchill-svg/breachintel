@@ -24,6 +24,9 @@ def create_breach_heatmap(state_summary) -> folium.Map:
     m = folium.Map(
         location=US_CENTER,
         zoom_start=4,
+        # Use CartoDB dark theme for strong contrast with the heatmap.
+        # Note: place-name labels come from the tile provider and may use
+        # localized spellings (e.g., \"AFRIKA\"), which we cannot override.
         tiles="CartoDB dark_matter",
     )
 
@@ -74,9 +77,10 @@ def create_breach_heatmap(state_summary) -> folium.Map:
         ).add_to(m)
 
     if heat_data:
+        # Add the gradient heat layer on top of the basemap and beneath the markers.
         HeatMap(
             heat_data,
-            radius=30,
+            radius=25,
             blur=20,
             max_zoom=6,
             gradient={

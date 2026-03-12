@@ -51,29 +51,15 @@ def load_or_train_forecaster(df: pd.DataFrame) -> BreachForecaster:
 def main() -> None:
     st.title("🔮 Breach Forecast")
     st.caption(
-        "This page projects monthly breach volumes for the next 24 months. Use it to understand "
-        "the direction and range of likely breach activity, not as a precise prediction."
+        "Projected monthly breach volumes — use as directional guidance, not precise prediction."
     )
 
     df = get_data()
 
-    # Top-of-page time controls
-    time_filtered_df, time_meta = configure_time_filters(df)
-
-    # Sidebar filters (breach type, entity type, geography)
+    # Sidebar: date range first, then breach/entity/geography (same as Home)
+    st.sidebar.header("Filters")
+    time_filtered_df, time_meta = configure_time_filters(df, in_sidebar=True)
     filtered_df, filter_state = render_sidebar_filters(time_filtered_df)
-
-    # Contextual time summary + active filter chips
-    if time_meta:
-        start = time_meta.get("start_date")
-        end = time_meta.get("end_date")
-        total_incidents = time_meta.get("total_incidents", len(time_filtered_df))
-        st.caption(
-            f"Showing breaches from **{start}** to **{end}** "
-            f"({int(total_incidents):,} incidents before additional filters)."
-        )
-
-    render_active_filter_bar(time_meta, filter_state)
 
     try:
         forecaster = load_or_train_forecaster(filtered_df)
@@ -90,25 +76,35 @@ def main() -> None:
             forecast_df = forecaster.model.predict(future)
             forecaster._forecast_df = forecast_df
         summary = forecaster.get_forecast_summary()
-    except Exception as exc:
+    except Exception:
         st.warning(
-            "Unable to train or load the breach forecast model. "
-            "Ensure the Prophet dependency is installed and data is available.",
+            "The forecast model could not be loaded. Please run "
+            "'python scripts/train_models.py' to train the models.",
             icon="⚠️",
         )
-        st.exception(exc)
         render_footer()
         return
 
-    # Forecast chart
-    st.subheader("24‑Month Breach Forecast")
-
     history = forecaster._history_df.copy()  # type: ignore[attr-defined]
     history = history.rename(columns={"ds": "date", "y": "breach_count"})
+    history["date"] = pd.to_datetime(history["date"], errors="coerce")
 
     forecast_chart_df = forecast_df.rename(
         columns={"ds": "date", "yhat": "forecast", "yhat_lower": "lower", "yhat_upper": "upper"}
     )
+    forecast_chart_df["date"] = pd.to_datetime(forecast_chart_df["date"], errors="coerce")
+
+    # Align with dashboard date filter: only show from start_date onward
+    start_date = time_meta.get("start_date") if time_meta else None
+    if start_date is not None:
+        start_dt = pd.Timestamp(start_date)
+        history = history[history["date"].dt.date >= start_date]
+        forecast_chart_df = forecast_chart_df[forecast_chart_df["date"] >= start_dt]
+
+    # Prevent negative confidence interval or forecast (clip to >= 0)
+    forecast_chart_df = forecast_chart_df.copy()
+    forecast_chart_df["lower"] = forecast_chart_df["lower"].clip(lower=0)
+    forecast_chart_df["forecast"] = forecast_chart_df["forecast"].clip(lower=0)
 
     fig = create_forecast_chart(
         forecast_df=forecast_chart_df[["date", "forecast", "lower", "upper"]],
@@ -125,9 +121,11 @@ def main() -> None:
         start = future["date"].min().date()
         end = future["date"].max().date()
         direction = summary["trend_direction"]
+        # Use HTML <strong> so bold renders inside the styled paragraph (markdown ** is not parsed in raw HTML)
         text = (
-            f"Over the next 24 months (**{start}–{end}**), predicted monthly breaches range "
-            f"from **{lo:.1f}** to **{hi:.1f}** incidents, with an overall **{direction}** trend."
+            f"Over the next 24 months (<strong>{start}</strong> – <strong>{end}</strong>), "
+            f"predicted monthly breaches range from <strong>{lo:.1f}</strong> to <strong>{hi:.1f}</strong> "
+            f"incidents, with an overall <strong>{direction}</strong> trend."
         )
     else:
         text = (

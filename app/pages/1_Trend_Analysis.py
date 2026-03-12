@@ -83,43 +83,29 @@ def _compute_yearly_with_year_mode(
 
 def main() -> None:
     st.title("📈 Trend Analysis")
-    st.caption(
-        "This page shows how breach counts evolve over time. Use the date range and breach-type "
-        "filters to focus on specific periods, and switch between monthly and yearly views with "
-        "the Group by toggle."
-    )
 
     df = get_data()
 
-    # Top-of-page time controls
-    time_filtered_df, time_meta = configure_time_filters(df)
-
-    # Sidebar filters (breach type, entity type, geography)
+    # Sidebar: date range and filters (time first, then breach/entity/geography)
+    st.sidebar.header("Filters")
+    time_filtered_df, time_meta = configure_time_filters(df, in_sidebar=True)
     filtered_df, filter_state = render_sidebar_filters(time_filtered_df)
 
-    # Contextual time summary + active filter chips
+    # Contextual time summary
     if time_meta:
         start = time_meta.get("start_date")
         end = time_meta.get("end_date")
         total_incidents = time_meta.get("total_incidents", len(time_filtered_df))
         st.caption(
-            f"Showing breaches from **{start}** to **{end}** "
+            f"Showing breaches from {start} to {end} "
             f"({int(total_incidents):,} incidents before additional filters)."
         )
 
     trend_data = compute_trend_data(filtered_df)
     monthly = trend_data["monthly"]
 
-    # Year mode selector (calendar vs fiscal)
-    year_mode = st.radio(
-        "Year mode",
-        options=["Calendar year", "Fiscal (Oct–Sep)"],
-        index=0,
-        horizontal=True,
-        key="trend_year_mode",
-    )
-
-    yearly = _compute_yearly_with_year_mode(filtered_df, year_mode)
+    # Yearly trends (calendar year by default)
+    yearly = _compute_yearly_with_year_mode(filtered_df, year_mode="Calendar year")
 
     # Per-page KPI row
     kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
@@ -162,8 +148,6 @@ def main() -> None:
                 color="danger" if spike_val >= 0 else "success",
             )
 
-    render_active_filter_bar(time_meta, filter_state)
-
     # Global group-by selector for trend views
     group_by = st.radio(
         "Group by",
@@ -174,36 +158,62 @@ def main() -> None:
     )
 
     if group_by == "Month":
-        st.subheader("Monthly Breach Activity")
         fig_overview = create_overview_chart(filtered_df)
         st.plotly_chart(fig_overview, use_container_width=True)
 
         # Narrative summary under monthly chart
         if not monthly.empty and len(monthly) >= 12:
-            first_idx = monthly.index.min()
-            last_idx = monthly.index.max()
-            first_cnt = int(monthly.loc[first_idx, "breach_count"])
-            last_cnt = int(monthly.loc[last_idx, "breach_count"])
-            first_year = first_idx.year
-            last_year = last_idx.year
+            # Compute average monthly breaches for the first and last *complete* years
+            monthly_index = monthly.index.to_period("M")
+            years = sorted(set(monthly_index.year))
+            complete_years = []
+            for y in years:
+                mask = monthly_index.year == y
+                if mask.sum() == 12:
+                    complete_years.append(y)
 
-            text: str
-            if (
-                "yoy_count_change" in yearly.columns
-                and yearly["yoy_count_change"].notna().any()
-            ):
-                spikes = yearly["yoy_count_change"].dropna()
-                spike_year = int(spikes.idxmax())
-                spike_val = float(spikes.loc[spike_year])
-                text = (
-                    f"From **{first_year}** to **{last_year}**, monthly breaches changed from "
-                    f"**{first_cnt}** to **{last_cnt}** incidents, with the largest spike in "
-                    f"**{spike_year}** ({spike_val:+.1f}% YoY)."
+            if len(complete_years) >= 2:
+                first_year = complete_years[0]
+                last_year = complete_years[-1]
+                first_avg = float(
+                    monthly[monthly_index.year == first_year]["breach_count"].mean()
                 )
+                last_avg = float(
+                    monthly[monthly_index.year == last_year]["breach_count"].mean()
+                )
+
+                text: str
+                if (
+                    "yoy_count_change" in yearly.columns
+                    and yearly["yoy_count_change"].notna().any()
+                ):
+                    spikes = yearly["yoy_count_change"].dropna()
+                    spike_year = int(spikes.idxmax())
+                    spike_val = float(spikes.loc[spike_year])
+                    text = (
+                        f"Between <strong>{first_year}</strong> and <strong>{last_year}</strong>, the "
+                        f"average number of monthly breaches shifted from "
+                        f"<strong>{first_avg:.1f}</strong> to <strong>{last_avg:.1f}</strong> incidents, "
+                        f"with the largest single-year spike in <strong>{spike_year}</strong> "
+                        f"({spike_val:+.1f}% YoY)."
+                    )
+                else:
+                    text = (
+                        f"Between <strong>{first_year}</strong> and <strong>{last_year}</strong>, the "
+                        f"average number of monthly breaches shifted from "
+                        f"<strong>{first_avg:.1f}</strong> to <strong>{last_avg:.1f}</strong> incidents."
+                    )
             else:
+                # Fallback to original point-to-point logic if we cannot find two full years
+                first_idx = monthly.index.min()
+                last_idx = monthly.index.max()
+                first_cnt = int(monthly.loc[first_idx, "breach_count"])
+                last_cnt = int(monthly.loc[last_idx, "breach_count"])
+                first_year = first_idx.year
+                last_year = last_idx.year
                 text = (
-                    f"From **{first_year}** to **{last_year}**, monthly breaches changed from "
-                    f"**{first_cnt}** to **{last_cnt}** incidents."
+                    f"From <strong>{first_year}</strong> to <strong>{last_year}</strong>, monthly breaches changed from "
+                    f"<strong>{first_cnt}</strong> to <strong>{last_cnt}</strong> incidents."
                 )
 
             st.markdown(
@@ -236,13 +246,13 @@ def main() -> None:
                 )
         else:
             st.info(
-                "No clear inflection points detected in the 12‑month moving average.",
+                "The frequency of healthcare breaches remains consistently high, with no significant "
+                "downward trend observed over the past year.",
                 icon="ℹ️",
             )
 
         # Drill-down: inspect a specific month
         if not monthly.empty:
-            st.markdown("---")
             st.subheader("Drill into a Month")
 
             # Build list of available periods as YYYY-MM strings
@@ -286,35 +296,59 @@ def main() -> None:
                             "state",
                         ]
                     ].head(10)
+                    # Present user-friendly column headers for non-technical readers
+                    top_display = top_display.rename(
+                        columns={
+                            "entity_name": "Healthcare Entity",
+                            "individuals_affected": "People Affected",
+                            "breach_type": "Breach Cause",
+                            "state": "State",
+                        }
+                    )
 
-                    left_col, right_col = st.columns([2, 1])
+                    # Hide the DataFrame index; users don't need raw row numbers
+                    st.dataframe(
+                        top_display.style.format(
+                            {"People Affected": "{:,.0f}"}
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
-                    with left_col:
-                        st.dataframe(
-                            top_display.style.format(
-                                {"individuals_affected": "{:,.0f}"}
-                            ),
-                            use_container_width=True,
-                        )
-
-                    with right_col:
-                        selected_entity = st.selectbox(
-                            "Inspect entity in this month",
-                            options=top_display["entity_name"].tolist(),
-                            key="trend_entity_inspect",
-                        )
-                        if selected_entity:
-                            entity_rows = month_df[
-                                month_df["entity_name"] == selected_entity
-                            ]
-                            if not entity_rows.empty:
-                                idx = entity_rows["individuals_affected"].idxmax()
-                                record = entity_rows.loc[idx]
-                                render_breach_detail_card(
-                                    record, title="Monthly Breach Detail"
-                                )
+                    # Breach detail card below the table at full width for better readability
+                    selected_entity = st.selectbox(
+                        "Inspect entity in this month",
+                        options=top_display["Healthcare Entity"].tolist(),
+                        key="trend_entity_inspect",
+                    )
+                    if selected_entity:
+                        entity_rows = month_df[
+                            month_df["entity_name"] == selected_entity
+                        ]
+                        if not entity_rows.empty:
+                            idx = entity_rows["individuals_affected"].idxmax()
+                            record = entity_rows.loc[idx]
+                            render_breach_detail_card(
+                                record,
+                                title="Monthly Breach Detail",
+                                show_frame=False,
+                            )
     else:
         st.subheader("Yearly Breach Metrics")
+
+        # Restrict YoY analysis to complete historical years (exclude the latest incomplete year)
+        # by aligning with the monthly index used elsewhere.
+        yearly_complete = yearly.copy()
+        if not monthly.empty:
+            monthly_index = monthly.index.to_period("M")
+            years = sorted(set(monthly_index.year))
+            complete_years = []
+            for y in years:
+                mask = monthly_index.year == y
+                if mask.sum() == 12:
+                    complete_years.append(y)
+            if complete_years:
+                yearly_complete = yearly_complete.loc[yearly_complete.index.isin(complete_years)]
 
         display_cols = [
             "breach_count",
@@ -326,29 +360,56 @@ def main() -> None:
             "yoy_count_change",
             "yoy_affected_change",
         ]
-        yearly_display = yearly[display_cols].copy()
-        yearly_display.index.name = "year"
+        yearly_display = yearly_complete[display_cols].copy()
+        yearly_display = yearly_display.reset_index()
+
+        # Make column headers human-readable
+        yearly_display = yearly_display.rename(
+            columns={
+                "year": "Year",
+                "breach_count": "Breaches",
+                "total_affected": "Total Affected",
+                "avg_affected": "Avg Affected",
+                "median_affected": "Median Affected",
+                "unique_entities": "Unique Entities",
+                "unique_states": "States Affected",
+                "yoy_count_change": "YoY Breach Change (%)",
+                "yoy_affected_change": "YoY Affected Change (%)",
+            }
+        )
+        # Ensure Year is a simple string without thousands separators
+        yearly_display["Year"] = yearly_display["Year"].astype(str)
 
         st.dataframe(
             yearly_display.style.format(
                 {
-                    "breach_count": "{:,.0f}",
-                    "total_affected": "{:,.0f}",
-                    "avg_affected": "{:,.1f}",
-                    "median_affected": "{:,.1f}",
-                    "yoy_count_change": "{:+.1f}%",
-                    "yoy_affected_change": "{:+.1f}%",
+                    "Breaches": "{:,.0f}",
+                    "Total Affected": "{:,.0f}",
+                    "Avg Affected": "{:,.0f}",
+                    "Median Affected": "{:,.0f}",
+                    "Unique Entities": "{:,.0f}",
+                    "States Affected": "{:,.0f}",
+                    "YoY Breach Change (%)": "{:+.1f}%",
+                    "YoY Affected Change (%)": "{:+.1f}%",
                 }
             ),
             use_container_width=True,
+            hide_index=True,
         )
 
-        yoy_df = yearly.reset_index()[["year", "yoy_count_change"]].dropna()
+        yoy_df = (
+            yearly_complete.reset_index()[["year", "yoy_count_change"]]
+            .dropna()
+        )
         fig_yoy = create_yoy_growth(yoy_df)
         st.plotly_chart(fig_yoy, use_container_width=True)
 
     st.markdown("---")
     st.subheader("Evolution of Breach Types")
+    st.caption(
+        "External cyberattacks (Hacking/IT Incidents) consistently account for over 80% of all compromises, "
+        "vastly outnumbering physical theft or internal leaks."
+    )
 
     # Prepare data for stacked area chart
     breach_type_df = filtered_df.copy()

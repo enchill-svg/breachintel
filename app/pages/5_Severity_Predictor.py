@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from breachintel.utils.cache import load_data
@@ -71,41 +72,30 @@ def build_feature_vector(
     if "year" in features:
         features["year"] = year
 
-    # Business associate flag
-    set_if_present("is_business_associate")
-    if "business_associate" in features:
-        features["business_associate"] = int(business_associate)
+    # Business associate flag – align with training feature name(s)
+    # Newer feature sets use 'has_business_associate'; older ones may use
+    # 'is_business_associate' or a numeric 'business_associate' column.
+    if "has_business_associate" in features:
+        features["has_business_associate"] = int(business_associate)
+    else:
+        set_if_present("is_business_associate")
+        if "business_associate" in features:
+            features["business_associate"] = int(business_associate)
 
     return features
 
 
 def main() -> None:
     st.title("🎯 Breach Severity Predictor")
-    st.caption(
-        "Interactively estimate the likely severity of a prospective healthcare data "
-        "breach and understand which factors drive the model's prediction."
-    )
 
     df = get_data()
     # Use filters only for deriving available choices; prediction itself is independent
 
-    # Top-of-page time controls
-    time_filtered_df, time_meta = configure_time_filters(df)
-
+    # Sidebar: date range first, then breach/entity/geography (same as Home)
+    st.sidebar.header("Filters")
+    time_filtered_df, time_meta = configure_time_filters(df, in_sidebar=True)
     # Sidebar filters (breach type, entity type, geography)
     filtered_df, filter_state = render_sidebar_filters(time_filtered_df)
-
-    # Contextual time summary + active filter chips
-    if time_meta:
-        start = time_meta.get("start_date")
-        end = time_meta.get("end_date")
-        total_incidents = time_meta.get("total_incidents", len(time_filtered_df))
-        st.caption(
-            f"Showing breaches from **{start}** to **{end}** "
-            f"({int(total_incidents):,} incidents before additional filters)."
-        )
-
-    render_active_filter_bar(time_meta, filter_state)
 
     model = load_severity_model()
     if model is None or model.feature_columns is None:
@@ -156,7 +146,9 @@ def main() -> None:
 
         with col_right:
             state = st.selectbox("State", options=states or ["CA"])
-            year = st.slider("Year", min_value=2020, max_value=2026, value=2025)
+            # Use a dropdown for year so users can click instead of dragging a slider
+            year_options = list(range(2020, 2027))
+            year = st.selectbox("Year", options=year_options, index=len(year_options) - 1)
             business_associate = st.checkbox("Business associate involved?", value=False)
 
         submitted = st.form_submit_button("🔮 Predict Severity", type="primary", use_container_width=True)
@@ -193,7 +185,8 @@ def main() -> None:
 
         with col2:
             st.markdown("###### Model Confidence")
-            st.metric(label="Confidence", value=f"{confidence_pct:.1f}%")
+            # Display confidence as a whole-number percentage (e.g. 68%)
+            st.metric(label="Confidence", value=f"{confidence_pct:.0f}%")
 
         with col3:
             st.markdown("###### Risk Score")
@@ -209,20 +202,54 @@ def main() -> None:
 
         importances = getattr(model.model, "feature_importances_", None)
         if importances is not None and model.feature_columns:
-            feat_df = (
-                pd.DataFrame(
-                    {"feature": model.feature_columns, "importance": importances}
-                )
-                .sort_values("importance", ascending=False)
-                .head(5)
+            raw_feat_df = pd.DataFrame(
+                {"feature": model.feature_columns, "importance": importances}
+            ).sort_values("importance", ascending=False)
+
+            # Clean up raw feature names (one‑hot encoded columns) for display
+            def _humanize_feature(name: str) -> str:
+                if name == "individuals_affected":
+                    return "People Affected"
+
+                mappings = {
+                    "breach_type_": "Type: ",
+                    "entity_type_": "Entity: ",
+                    "breach_location_": "Location: ",
+                    "location_": "Location: ",
+                    "state_": "State: ",
+                }
+                for prefix, label in mappings.items():
+                    if name.startswith(prefix):
+                        tail = name[len(prefix) :].replace("_", " ")
+                        return f"{label}{tail}"
+
+                if name == "is_business_associate":
+                    return "Business Associate Flag"
+                if name == "business_associate":
+                    return "Business Associate"
+
+                # Fallback: replace underscores and title‑case
+                return name.replace("_", " ").title()
+
+            raw_feat_df["feature_label"] = raw_feat_df["feature"].apply(_humanize_feature)
+
+            # Top 8 features for the chart
+            feat_df = raw_feat_df.head(8).sort_values("importance", ascending=True)
+
+            # Horizontal bar chart of feature importance with cleaned labels
+            fig_importance = px.bar(
+                feat_df,
+                x="importance",
+                y="feature_label",
+                orientation="h",
+                title=None,
             )
-            cols = st.columns(len(feat_df))
-            for col, (_, row_feat) in zip(cols, feat_df.iterrows()):
-                with col:
-                    st.metric(
-                        label=row_feat["feature"],
-                        value=f"{row_feat['importance']:.3f}",
-                    )
+            fig_importance.update_layout(
+                xaxis_title="Relative Importance",
+                yaxis_title="Model Feature",
+            )
+            st.plotly_chart(fig_importance, use_container_width=True)
+
         else:
             st.info(
                 "Feature importances are not available for this model type.",

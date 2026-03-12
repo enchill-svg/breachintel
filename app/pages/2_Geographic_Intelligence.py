@@ -3,11 +3,13 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
+import plotly.graph_objects as go
 
 from breachintel.utils.cache import load_data
+from breachintel.utils.constants import STATE_ABBREVIATIONS
 from breachintel.analysis.geographic import GeographicAnalyzer
 from breachintel.visualization.maps import create_breach_heatmap, create_state_detail_map
-from breachintel.visualization.charts import create_overview_chart, create_breach_type_area
+from breachintel.visualization.charts import apply_theme, create_breach_type_area
 
 from app.components.filters import (
     configure_time_filters,
@@ -34,29 +36,21 @@ def get_data() -> pd.DataFrame:
 
 def main() -> None:
     st.title("🗺️ Geographic Intelligence")
-    st.caption(
-        "This page compares states by total breach counts and per‑capita rates. Use the state "
-        "selector and filters to drill into a single state’s map and timelines."
+
+    # Clip folium map container to remove blank space below map (streamlit-folium #198, #213)
+    st.markdown(
+        "<style>[data-testid='stVerticalBlock'] > div:has(iframe) { max-height: 502px; overflow: hidden; }</style>",
+        unsafe_allow_html=True,
     )
 
     df = get_data()
 
-    # Top-of-page time controls
-    time_filtered_df, time_meta = configure_time_filters(df)
-
-    # Sidebar filters (breach type, entity type, geography)
+    # Sidebar: date range first, then breach/entity/geography (same as Home)
+    st.sidebar.header("Filters")
+    time_filtered_df, time_meta = configure_time_filters(df, in_sidebar=True)
     filtered_df, filter_state = render_sidebar_filters(time_filtered_df)
 
     # Contextual time summary + active filter chips
-    if time_meta:
-        start = time_meta.get("start_date")
-        end = time_meta.get("end_date")
-        total_incidents = time_meta.get("total_incidents", len(time_filtered_df))
-        st.caption(
-            f"Showing breaches from **{start}** to **{end}** "
-            f"({int(total_incidents):,} incidents before additional filters)."
-        )
-
     analyzer = GeographicAnalyzer()
     state_summary = analyzer.compute_state_summary(filtered_df).reset_index()
 
@@ -92,8 +86,6 @@ def main() -> None:
                 value=f"{int(num_states):,}",
             )
 
-    render_active_filter_bar(time_meta, filter_state)
-
     # Heatmap
     st.subheader("National Breach Heatmap")
     heatmap_map = create_breach_heatmap(state_summary)
@@ -114,12 +106,21 @@ def main() -> None:
             .head(10)
             .set_index("state")[["breach_count", "total_affected", "breaches_per_100k"]]
         )
+        top_breaches_display = (
+            top_breaches.rename(
+                columns={
+                    "breach_count": "Total Breaches",
+                    "total_affected": "People Affected",
+                    "breaches_per_100k": "Breaches per 100k",
+                }
+            ).rename_axis("State")
+        )
         st.dataframe(
-            top_breaches.style.format(
+            top_breaches_display.style.format(
                 {
-                    "breach_count": "{:,.0f}",
-                    "total_affected": "{:,.0f}",
-                    "breaches_per_100k": "{:,.2f}",
+                    "Total Breaches": "{:,.0f}",
+                    "People Affected": "{:,.0f}",
+                    "Breaches per 100k": "{:,.2f}",
                 }
             ),
             use_container_width=True,
@@ -133,12 +134,21 @@ def main() -> None:
             .head(10)
             .set_index("state")[["breach_count", "total_affected", "breaches_per_100k"]]
         )
+        top_per_capita_display = (
+            top_per_capita.rename(
+                columns={
+                    "breach_count": "Total Breaches",
+                    "total_affected": "People Affected",
+                    "breaches_per_100k": "Breaches per 100k",
+                }
+            ).rename_axis("State")
+        )
         st.dataframe(
-            top_per_capita.style.format(
+            top_per_capita_display.style.format(
                 {
-                    "breach_count": "{:,.0f}",
-                    "total_affected": "{:,.0f}",
-                    "breaches_per_100k": "{:,.2f}",
+                    "Total Breaches": "{:,.0f}",
+                    "People Affected": "{:,.0f}",
+                    "Breaches per 100k": "{:,.2f}",
                 }
             ),
             use_container_width=True,
@@ -158,26 +168,72 @@ def main() -> None:
     if selected_state:
         state_df = filtered_df[filtered_df["state"] == selected_state]
 
-        st.markdown(f"##### {selected_state} Breach Map & Timeline")
+        # Map state abbreviation to full name for human-readable headings.
+        # STATE_ABBREVIATIONS maps many variants to USPS codes; build a reverse map.
+        code_to_name = {}
+        for full_or_code, code in STATE_ABBREVIATIONS.items():
+            if len(full_or_code) > 2:
+                code_to_name[code] = full_or_code.title()
+        full_state_name = code_to_name.get(str(selected_state).upper(), str(selected_state).title())
+
+        st.markdown(f"##### {full_state_name} Breach Map & Timeline")
 
         state_map = create_state_detail_map(state_df, selected_state)
         st_folium(state_map, width=None, height=400)
 
-        # Timeline chart for selected state
+        # Timeline chart for selected state – aggregate breaches per year
         timeline_df = state_df.copy()
-        timeline_df = timeline_df.rename(columns={"breach_date": "date"})
-        fig_timeline = create_overview_chart(timeline_df)
-        st.plotly_chart(fig_timeline, use_container_width=True)
+        timeline_df["breach_date"] = pd.to_datetime(
+            timeline_df["breach_date"], errors="coerce"
+        )
+        timeline_df = timeline_df.dropna(subset=["breach_date"])
+        timeline_df["year"] = timeline_df["breach_date"].dt.year
+
+        yearly = (
+            timeline_df.dropna(subset=["year"])
+            .groupby("year")
+            .size()
+            .reset_index(name="count")
+        )
+
+        if yearly.empty:
+            st.info(
+                "No breaches with a valid year were found for this state and filter selection.",
+                icon="ℹ️",
+            )
+        else:
+            fig_timeline = go.Figure()
+            fig_timeline.add_bar(
+                x=yearly["year"].astype(str),
+                y=yearly["count"],
+                name="Breaches per Year",
+                marker_color="#00E6B8",
+                opacity=0.8,
+            )
+            fig_timeline.update_layout(
+                title={
+                    "text": f"Breaches Per Year in {full_state_name}",
+                    "x": 0.5,
+                    "xanchor": "center",
+                },
+                xaxis_title="Year",
+                yaxis_title="Number of Breaches",
+                hovermode="x unified",
+            )
+            fig_timeline.update_yaxes(rangemode="tozero")
+            fig_timeline.update_xaxes(type="category")
+            fig_timeline = apply_theme(fig_timeline)
+            st.plotly_chart(fig_timeline, use_container_width=True)
 
         # Breach type composition over time for the state
-        st.markdown("##### Breach Type Evolution in State")
+        st.markdown(f"##### Breach Type Evolution in {full_state_name}")
         bt_df = state_df.copy()
         bt_df["date"] = bt_df["breach_date"]
         fig_bt = create_breach_type_area(bt_df)
         st.plotly_chart(fig_bt, use_container_width=True)
 
         # Drill-down: top breaches in this state
-        st.markdown("##### Top Breaches in State")
+        st.markdown(f"##### Top Breaches in {full_state_name}")
         if state_df.empty:
             st.info(
                 "No breaches match this state with the current filters. "
@@ -191,33 +247,41 @@ def main() -> None:
             top_state = ranked[
                 ["entity_name", "individuals_affected", "breach_type", "breach_location"]
             ].head(10)
+            top_state_display = top_state.rename(
+                columns={
+                    "entity_name": "Healthcare Entity",
+                    "individuals_affected": "People Affected",
+                    "breach_type": "Breach Cause",
+                    "breach_location": "Compromised System",
+                }
+            )
 
-            left_col, right_col = st.columns([2, 1])
+            st.dataframe(
+                top_state_display.style.format({"People Affected": "{:,.0f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
 
-            with left_col:
-                st.dataframe(
-                    top_state.style.format(
-                        {"individuals_affected": "{:,.0f}"}
-                    ),
-                    use_container_width=True,
-                )
-
-            with right_col:
-                selected_entity_state = st.selectbox(
-                    "Inspect entity in this state",
-                    options=top_state["entity_name"].tolist(),
-                    key="geo_entity_inspect",
-                )
-                if selected_entity_state:
-                    entity_rows_state = ranked[
-                        ranked["entity_name"] == selected_entity_state
-                    ]
-                    if not entity_rows_state.empty:
-                        idx_state = entity_rows_state["individuals_affected"].idxmax()
-                        record_state = entity_rows_state.loc[idx_state]
-                        render_breach_detail_card(
-                            record_state, title="State Breach Detail"
-                        )
+            st.markdown("**Inspect entity in this state**")
+            selected_entity_state = st.selectbox(
+                "Choose an entity",
+                options=top_state["entity_name"].tolist(),
+                key="geo_entity_inspect",
+                label_visibility="collapsed",
+            )
+            if selected_entity_state:
+                entity_rows_state = ranked[
+                    ranked["entity_name"] == selected_entity_state
+                ]
+                if not entity_rows_state.empty:
+                    idx_state = entity_rows_state["individuals_affected"].idxmax()
+                    record_state = entity_rows_state.loc[idx_state]
+                    # Render the detail content without the outer framed box.
+                    render_breach_detail_card(
+                        record_state,
+                        title="State Breach Detail",
+                        show_frame=False,
+                    )
 
     render_footer()
 

@@ -43,9 +43,9 @@ def main() -> None:
 
     df = get_data()
 
-    # Top-of-page time controls
-    time_filtered_df, time_meta = configure_time_filters(df)
-
+    # Sidebar: date range first, then breach/entity/geography (same as Home)
+    st.sidebar.header("Filters")
+    time_filtered_df, time_meta = configure_time_filters(df, in_sidebar=True)
     # Sidebar filters (breach type, entity type, geography)
     filtered_df, filter_state = render_sidebar_filters(time_filtered_df)
 
@@ -118,6 +118,12 @@ def main() -> None:
         .rename(columns={"entity_type": "entity_type", "breach_count": "breach_count"})
     )
     fig_entities = create_entity_comparison(comp_df[["entity_type", "breach_count"]])
+    # Use plain-language axis/legend labels
+    fig_entities.update_layout(
+        xaxis_title="Number of Breaches",
+        yaxis_title="Entity Type",
+        legend_title_text="Entity Type",
+    )
     st.plotly_chart(fig_entities, use_container_width=True)
 
     # Entity summary table
@@ -133,19 +139,41 @@ def main() -> None:
         "repeat_offenders",
     ]
     summary_display = entity_summary[display_cols].copy()
-    summary_display.index.name = "entity_type"
+    # Round averages to whole numbers for readability
+    summary_display["avg_affected"] = summary_display["avg_affected"].round(0)
+    summary_display["median_affected"] = summary_display["median_affected"].round(0)
+    # Move entity_type into a column and apply Title Case labels
+    summary_display = (
+        summary_display.reset_index()
+        .rename(
+            columns={
+                "entity_type": "Entity Type",
+                "breach_count": "Total Breaches",
+                "total_affected": "Total Affected",
+                "avg_affected": "Avg Affected",
+                "median_affected": "Median Affected",
+                "max_affected": "Max Affected",
+                "unique_entities": "Unique Entities",
+                "pct_of_breaches": "Pct of Breaches",
+                "repeat_offenders": "Repeat Offenders",
+            }
+        )
+    )
     st.dataframe(
         summary_display.style.format(
             {
-                "breach_count": "{:,.0f}",
-                "total_affected": "{:,.0f}",
-                "avg_affected": "{:,.1f}",
-                "median_affected": "{:,.1f}",
-                "max_affected": "{:,.0f}",
-                "pct_of_breaches": "{:.1f}%",
+                "Total Breaches": "{:,.0f}",
+                "Total Affected": "{:,.0f}",
+                "Avg Affected": "{:,.0f}",
+                "Median Affected": "{:,.0f}",
+                "Max Affected": "{:,.0f}",
+                "Unique Entities": "{:,.0f}",
+                "Pct of Breaches": "{:.1f}%",
+                "Repeat Offenders": "{:,.0f}",
             }
         ),
         use_container_width=True,
+        hide_index=True,
     )
 
     st.markdown("---")
@@ -155,37 +183,47 @@ def main() -> None:
     repeat_display = repeat_offenders.reset_index()
     repeat_display = repeat_display[
         ["entity_name", "breach_count", "total_affected", "entity_type", "state"]
-    ]
+    ].rename(
+        columns={
+            "entity_name": "Healthcare Entity",
+            "breach_count": "Total Breaches",
+            "total_affected": "People Affected",
+            "entity_type": "Entity Type",
+            "state": "State",
+        }
+    )
 
-    left_col, right_col = st.columns([2, 1])
+    # Repeat offenders table
+    st.dataframe(
+        repeat_display.style.format(
+            {
+                "Total Breaches": "{:,.0f}",
+                "People Affected": "{:,.0f}",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
 
-    with left_col:
-        st.dataframe(
-            repeat_display.style.format(
-                {
-                    "breach_count": "{:,.0f}",
-                    "total_affected": "{:,.0f}",
-                }
-            ),
-            use_container_width=True,
+    # Entity drill-down placed directly below the table for better vertical flow
+    if not repeat_display.empty:
+        selected_entity = st.selectbox(
+            "Inspect entity",
+            options=repeat_display["Healthcare Entity"].tolist(),
         )
-
-    with right_col:
-        if not repeat_display.empty:
-            selected_entity = st.selectbox(
-                "Inspect entity",
-                options=repeat_display["entity_name"].tolist(),
-            )
-            if selected_entity:
-                # Use the largest breach for this entity in the current filtered window
-                entity_rows = filtered_df[filtered_df["entity_name"] == selected_entity]
-                if not entity_rows.empty:
-                    idx = entity_rows["individuals_affected"].idxmax()
-                    record = entity_rows.loc[idx]
-                    render_breach_detail_card(
-                        record,
-                        title="Entity Breach Detail",
-                    )
+        if selected_entity:
+            # Use the largest breach for this entity in the current filtered window
+            entity_rows = filtered_df[filtered_df["entity_name"] == selected_entity]
+            if not entity_rows.empty:
+                idx = entity_rows["individuals_affected"].idxmax()
+                record = entity_rows.loc[idx]
+                # Render detail without the outer framed box so the title
+                # appears as plain text instead of inside a rounded rectangle.
+                render_breach_detail_card(
+                    record,
+                    title="Entity Breach Detail",
+                    show_frame=False,
+                )
 
     st.markdown("---")
 
@@ -196,6 +234,8 @@ def main() -> None:
     fig_trend = create_breach_type_area(
         trend_df.rename(columns={"entity_type": "breach_type"})
     )
+    # Clarify that the legend corresponds to entity type, not breach type.
+    fig_trend.update_layout(legend_title_text="Entity Type")
     st.plotly_chart(fig_trend, use_container_width=True)
 
     render_footer()

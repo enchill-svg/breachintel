@@ -6,7 +6,9 @@ import pandas as pd
 import streamlit as st
 
 
-def configure_time_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+def configure_time_filters(
+    df: pd.DataFrame, *, in_sidebar: bool = False
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Render top-of-page time controls and return a date-filtered DataFrame plus metadata.
 
@@ -34,7 +36,9 @@ def configure_time_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, An
     else:
         default_start_date = default_start_ts.date()
 
-    preset = st.selectbox(
+    target = st.sidebar if in_sidebar else st
+
+    preset = target.selectbox(
         "Date range",
         options=["Last 12 months", "Last 5 years", "All time", "Custom"],
         index=1,
@@ -56,7 +60,7 @@ def configure_time_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, An
         end_date = max_date
     else:
         # Custom range with explicit FROM / TO pickers
-        start_date, end_date = st.date_input(
+        start_date, end_date = target.date_input(
             "From / To",
             value=(default_start_date, max_date),
             min_value=min_date,
@@ -100,11 +104,6 @@ def render_sidebar_filters(
       - filtered DataFrame
       - filter state metadata for active filter summaries
     """
-    st.sidebar.header("Filters")
-
-    # Time section (top-level time is handled in the main layout)
-    st.sidebar.markdown("### Time")
-    st.sidebar.caption("Use the date controls at the top of the page.")
 
     data = df.copy()
 
@@ -122,7 +121,7 @@ def render_sidebar_filters(
             [bt for bt in data["breach_type"].dropna().unique().tolist()]
         )
         selected_breach_types = st.sidebar.multiselect(
-            "",
+            "Select breach types",
             options=all_breach_types,
             default=all_breach_types,
             key="Breach type",
@@ -138,7 +137,7 @@ def render_sidebar_filters(
             [et for et in data["entity_type"].dropna().unique().tolist()]
         )
         selected_entity_types = st.sidebar.multiselect(
-            "",
+            "Select entity types",
             options=all_entity_types,
             default=all_entity_types,
             key="Entity type",

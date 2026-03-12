@@ -106,14 +106,15 @@ def main() -> None:
     st.header("Author & License")
     st.markdown(
         """
-        **Author**: Your Name — *Your role / credentials here (e.g., Security Engineer,
-        Data Scientist, Healthcare Privacy Researcher)*.
+        **Author**: Yewku Enchill-Yawson — Biomedical Scientist · Healthcare 
+        Cybersecurity & Data Intelligence. Research Assistant, Noguchi Memorial 
+        Institute for Medical Research (NMIMR). BSc Biomedical Science, 
+        University of Cape Coast.
 
         **License**: MIT. You are free to use, modify, and redistribute this project
         under the terms of the MIT License.
 
-        **Source code**: The BreachIntel project is available on GitHub:
-        `[GitHub repository URL here]`.
+        **Source code**: The BreachIntel project is available on [GitHub](https://github.com/enchill-svg/breachintel).
         """
     )
 

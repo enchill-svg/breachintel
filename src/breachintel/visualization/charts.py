@@ -69,8 +69,8 @@ def create_overview_chart(df: pd.DataFrame) -> go.Figure:
         x=monthly["breach_date"],
         y=monthly["count"],
         name="Monthly Breaches",
-        marker_color=COLORS["primary"],
-        opacity=0.5,
+        marker_color="#00E6B8",
+        opacity=0.7,
     )
 
     fig.add_trace(
@@ -84,8 +84,24 @@ def create_overview_chart(df: pd.DataFrame) -> go.Figure:
     )
 
     fig.update_layout(
-        title="Healthcare Data Breaches Over Time",
+        title={
+            "text": "Healthcare Data Breaches Over Time",
+            "x": 0.5,
+            "xanchor": "center",
+        },
         hovermode="x unified",
+        # Reduce top margin to avoid excessive empty space above the title
+        margin=dict(t=30, l=60, r=30, b=50),
+    )
+
+    # Clean, readable hover tooltips for non-technical users
+    fig.update_traces(
+        selector=dict(name="Monthly Breaches"),
+        hovertemplate="Month: %{x|%b %Y}<br>Monthly breaches: %{y:.0f}<extra></extra>",
+    )
+    fig.update_traces(
+        selector=dict(name="12‑Month Moving Average"),
+        hovertemplate="Month: %{x|%b %Y}<br>12‑month average: %{y:.1f}<extra></extra>",
     )
     fig.update_yaxes(rangemode="tozero")
 
@@ -93,7 +109,7 @@ def create_overview_chart(df: pd.DataFrame) -> go.Figure:
 
 
 def create_breach_type_area(df: pd.DataFrame) -> go.Figure:
-    """Stacked area chart of breach types over years (x=year, y=count)."""
+    """100% stacked bar chart of breach types over years (x=year, y=percentage)."""
     data = df.copy()
     if "year" not in data.columns and "breach_date" in data.columns:
         data["year"] = pd.to_datetime(data["breach_date"], errors="coerce").dt.year
@@ -109,15 +125,25 @@ def create_breach_type_area(df: pd.DataFrame) -> go.Figure:
         .reset_index(name="count")
     )
 
-    fig = px.area(
+    # Convert to 100% stacked bar by normalizing counts within each year
+    evolution["year_total"] = evolution.groupby("year")["count"].transform("sum")
+    evolution["percentage"] = evolution["count"] / evolution["year_total"]
+
+    fig = px.bar(
         evolution,
         x="year",
-        y="count",
+        y="percentage",
         color="breach_type",
         title=None,
     )
-
-    fig.update_layout(colorway=list(COLORS.values()))
+    fig.update_layout(
+        barmode="stack",
+        colorway=list(COLORS.values()),
+        xaxis_title="Year",
+        yaxis_title="Percentage of Breaches",
+        legend_title_text="Breach Type",
+        yaxis=dict(tickformat=".0%", rangemode="tozero"),
+    )
     return apply_theme(fig)
 
 
@@ -157,68 +183,91 @@ def create_forecast_chart(
     forecast_df: pd.DataFrame, actual_df: pd.DataFrame
 ) -> go.Figure:
     """Forecast chart with confidence interval and actuals."""
-    actual_monthly = (
-        actual_df.copy()
-        .set_index("date")
-        .resample("M")
-        .size()
-        .rename("breach_count")
-        .to_frame()
-    )
+    # Normalize forecast dates so x-axis is consistently datetime
+    forecast_df = forecast_df.copy()
+    forecast_df["date"] = pd.to_datetime(forecast_df["date"], errors="coerce")
+    forecast_df = forecast_df.dropna(subset=["date"])
+
+    # Build actual monthly series: use count column (breach_count or y) per month
+    actual = actual_df.copy()
+    actual["date"] = pd.to_datetime(actual["date"], errors="coerce")
+    actual = actual.dropna(subset=["date"])
+    count_col = "breach_count" if "breach_count" in actual.columns else "y"
+    if count_col not in actual.columns:
+        other = [c for c in actual.columns if c != "date"]
+        count_col = other[0] if other else None
+    if count_col is None:
+        actual_monthly = pd.DataFrame(
+            {"date": pd.DatetimeIndex([]), "breach_count": []}
+        ).set_index("date")
+    else:
+        actual_monthly = (
+            actual.set_index("date")
+            .resample("ME")
+            .agg({count_col: "sum"})
+            .rename(columns={count_col: "breach_count"})
+        )
+    # Ensure index is datetime and y is numeric for Plotly
+    actual_monthly.index = pd.to_datetime(actual_monthly.index)
+    actual_monthly["breach_count"] = actual_monthly["breach_count"].astype(float)
 
     fig = go.Figure()
 
-    # Confidence interval (assumes forecast_df has date, lower, upper)
+    # Confidence interval: closed polygon using forecast date and lower/upper
     if {"date", "lower", "upper"}.issubset(forecast_df.columns):
+        x = forecast_df["date"].tolist()
+        y_upper = forecast_df["upper"].astype(float).tolist()
+        y_lower = forecast_df["lower"].astype(float).tolist()
         fig.add_trace(
             go.Scatter(
-                x=pd.concat(
-                    [forecast_df["date"], forecast_df["date"][::-1]], ignore_index=True
-                ),
-                y=pd.concat(
-                    [forecast_df["upper"], forecast_df["lower"][::-1]],
-                    ignore_index=True,
-                ),
+                x=x + x[::-1],
+                y=y_upper + y_lower[::-1],
                 fill="toself",
                 fillcolor="rgba(0, 212, 170, 0.15)",
                 line=dict(color="rgba(0,0,0,0)"),
                 hoverinfo="skip",
                 showlegend=True,
-                name="Confidence Interval",
+                name="90% CI",
             )
         )
 
-    # Forecast line (assumes column 'forecast' or 'yhat')
+    # Forecast line: x=date, y=forecast
     forecast_col = "forecast"
     if forecast_col not in forecast_df.columns and "yhat" in forecast_df.columns:
         forecast_col = "yhat"
-
     if {"date", forecast_col}.issubset(forecast_df.columns):
         fig.add_trace(
             go.Scatter(
                 x=forecast_df["date"],
-                y=forecast_df[forecast_col],
+                y=forecast_df[forecast_col].astype(float),
                 mode="lines",
                 name="Forecast",
                 line=dict(color=COLORS["primary"], dash="dash"),
             )
         )
 
-    # Actual data
-    fig.add_trace(
-        go.Scatter(
-            x=actual_monthly.index,
-            y=actual_monthly["breach_count"],
-            mode="lines",
-            name="Actual",
-            line=dict(color=COLORS["secondary"]),
+    # Actual line: only add if we have data; x=datetime index, y=breach_count
+    if len(actual_monthly) > 0:
+        fig.add_trace(
+            go.Scatter(
+                x=actual_monthly.index,
+                y=actual_monthly["breach_count"].values,
+                mode="lines",
+                name="Actual",
+                line=dict(color=COLORS["secondary"]),
+            )
         )
-    )
 
     fig.update_layout(
         title="Breach Forecast (24 Months)",
         hovermode="x unified",
     )
+    fig.update_xaxes(
+        showticklabels=True,
+        type="date",
+        tickformat="%b %Y",
+    )
+    fig.update_yaxes(rangemode="tozero")
 
     return apply_theme(fig)
 
@@ -247,14 +296,19 @@ def create_yoy_growth(yearly: pd.DataFrame) -> go.Figure:
 
     fig = go.Figure(
         go.Bar(
-            x=yearly["year"],
+            x=yearly["year"].astype(str),
             y=yearly["yoy_count_change"],
             marker_color=colors,
             name="YoY Change in Breach Count",
         )
     )
 
-    fig.update_layout(title="Year‑over‑Year Breach Growth")
+    fig.update_layout(
+        title="Year‑over‑Year Breach Growth",
+        xaxis_type="category",
+        xaxis_title="Year",
+        yaxis_title="YoY Change (%)",
+    )
 
     return apply_theme(fig)
 

@@ -34,10 +34,13 @@ def load_data() -> pd.DataFrame:
         source = "raw_under_investigation"
         logger.info(f"Loading raw breach data from {path} ({source})")
         df = pd.read_csv(path)
+        # Normalize column names so downstream code can rely on canonical fields
+        if "State" in df.columns and "state" not in df.columns:
+            df = df.rename(columns={"State": "state"})
+        if "Breach Submission Date" in df.columns and "breach_date" not in df.columns:
+            df = df.rename(columns={"Breach Submission Date": "breach_date"})
         # Normalize date column name if needed
-        if "breach_date" not in df.columns and "Breach Submission Date" in df.columns:
-            df["breach_date"] = pd.to_datetime(df["Breach Submission Date"], errors="coerce")
-        else:
+        if "breach_date" in df.columns:
             df["breach_date"] = pd.to_datetime(df["breach_date"], errors="coerce")
         logger.info(f"Loaded {len(df):,} rows from {path}")
         return df
@@ -47,9 +50,12 @@ def load_data() -> pd.DataFrame:
         source = "sample"
         logger.info(f"Loading sample breach data from {path} ({source})")
         df = pd.read_csv(path)
-        if "breach_date" not in df.columns and "Breach Submission Date" in df.columns:
-            df["breach_date"] = pd.to_datetime(df["Breach Submission Date"], errors="coerce")
-        else:
+        # Ensure sample data uses canonical column names expected by the app
+        if "State" in df.columns and "state" not in df.columns:
+            df = df.rename(columns={"State": "state"})
+        if "Breach Submission Date" in df.columns and "breach_date" not in df.columns:
+            df = df.rename(columns={"Breach Submission Date": "breach_date"})
+        if "breach_date" in df.columns:
             df["breach_date"] = pd.to_datetime(df["breach_date"], errors="coerce")
         logger.info(f"Loaded {len(df):,} rows from {path}")
         return df

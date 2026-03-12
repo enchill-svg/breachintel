@@ -48,8 +48,8 @@ class TrendAnalyzer:
 
         df_dt = df_dt.set_index("breach_date")
 
-        # Use month-end frequency; "M" corresponds to calendar month-end.
-        monthly = df_dt.resample("M").agg(
+        # Use month-end frequency; "ME" is the non-deprecated alias for month-end.
+        monthly = df_dt.resample("ME").agg(
             breach_count=("individuals_affected", "size"),
             total_affected=("individuals_affected", "sum"),
             avg_affected=("individuals_affected", "mean"),

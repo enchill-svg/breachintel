@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 import streamlit as st
 
-from breachintel.utils.constants import COLORS
+from breachintel.utils.constants import COLORS, STATE_ABBREVIATIONS
 
 from app.components.metrics import render_severity_badge
 
@@ -39,6 +39,7 @@ def render_breach_detail_card(
     predicted_severity: Optional[str] = None,
     attack_category: Optional[str] = None,
     title: str = "Breach Details",
+    show_frame: bool = True,
 ) -> None:
     """
     Render a reusable Breach Detail Card from a single breach record.
@@ -50,11 +51,24 @@ def render_breach_detail_card(
 
     entity_name = _coerce_str(row.get("entity_name"), default="Unknown entity")
     entity_type = _coerce_str(row.get("entity_type"))
-    state = _coerce_str(row.get("state"))
+    state_raw = _coerce_str(row.get("state"))
+    # For non-technical users, expand state abbreviations where possible and
+    # display them in title case (e.g., "Minnesota" instead of "MN" or "MINNESOTA").
+    # STATE_ABBREVIATIONS maps many variants to USPS codes; we invert to a simple
+    # code -> title-cased full name map when possible.
+    code_to_name: Dict[str, str] = {}
+    for full_or_code, code in STATE_ABBREVIATIONS.items():
+        if len(full_or_code) > 2:  # treat this as a full state/territory name
+            code_to_name[code] = full_or_code.title()
+    # Try to resolve by treating the raw value as a code; fall back to title-cased raw.
+    candidate = code_to_name.get(state_raw.upper())
+    state = candidate if candidate is not None else state_raw.title()
 
     individuals = row.get("individuals_affected")
     individuals_display = (
-        f"{int(individuals):,}" if isinstance(individuals, (int, float)) and not pd.isna(individuals) else "Unknown"
+        f"{int(individuals):,}"
+        if isinstance(individuals, (int, float)) and not pd.isna(individuals)
+        else "Unknown"
     )
 
     ba_flag = _coerce_str(row.get("business_associate"))
@@ -103,37 +117,30 @@ def render_breach_detail_card(
 
     severity_badge = render_severity_badge(severity_label)
 
-    # Use Streamlit layout primitives instead of a large raw HTML string
-    with st.container():
-        st.markdown(
-            f"""
+    # Use Streamlit layout primitives instead of a large raw HTML string.
+    with st.container(border=False):
+        if show_frame:
+            # Opening div and title in one markdown so no empty bordered box appears above the title.
+            st.markdown(
+                f"""
 <div style="
   background-color:{COLORS['bg_card']};
-  border-radius:0.9rem;
-  border:1px solid rgba(148,163,184,0.5);
-  padding:1rem 1.2rem;
-  margin-top:0.5rem;
+  border-radius:0.85rem;
+  border:1px solid rgba(148,163,184,0.4);
+  padding:0.85rem 1.1rem 0.75rem 1.1rem;
+  margin-top:0.4rem;
 ">
+<div style='font-size:0.78rem; text-transform:uppercase; letter-spacing:0.08em; color:#CBD5F5;'>{title}</div>
 """,
-            unsafe_allow_html=True,
-        )
-
-        header_cols = st.columns([3, 1])
-        with header_cols[0]:
-            st.markdown(
-                f"<div style='font-size:0.9rem; text-transform:uppercase; "
-                f"letter-spacing:0.1em; color:{COLORS['text_secondary']};'>{title}</div>",
                 unsafe_allow_html=True,
             )
-        with header_cols[1]:
-            st.markdown(severity_badge, unsafe_allow_html=True)
 
         col_left, col_right = st.columns(2)
 
         with col_left:
             st.markdown(
                 f"<div style='font-size:0.75rem; text-transform:uppercase; "
-                f"letter-spacing:0.08em; color:{COLORS['text_secondary']};'>Entity</div>",
+                f"letter-spacing:0.08em; color:#CBD5F5; margin-top:0.35rem;'>Entity</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
@@ -141,15 +148,24 @@ def render_breach_detail_card(
                 f"{entity_name}</div>",
                 unsafe_allow_html=True,
             )
+            # Severity badge anchored next to entity name block
+            st.markdown(
+                f"<div style='margin-top:0.25rem;'>{severity_badge}</div>",
+                unsafe_allow_html=True,
+            )
+            # Map business associate terminology to a plainer label
+            entity_type_display = (
+                "Third-Party Vendor" if entity_type.lower() == "business associate" else entity_type
+            )
             st.markdown(
                 f"<div style='color:{COLORS['text_secondary']}; margin-top:0.1rem;'>"
-                f"{entity_type} · {state}</div>",
+                f"{entity_type_display} · {state}</div>",
                 unsafe_allow_html=True,
             )
 
             st.markdown(
                 f"<div style='font-size:0.75rem; text-transform:uppercase; "
-                f"letter-spacing:0.08em; color:{COLORS['text_secondary']}; "
+                f"letter-spacing:0.08em; color:#CBD5F5; "
                 f"margin-top:0.75rem;'>Impact</div>",
                 unsafe_allow_html=True,
             )
@@ -158,16 +174,29 @@ def render_breach_detail_card(
                 f"{individuals_display} individuals</div>",
                 unsafe_allow_html=True,
             )
+            # Approximate share of the U.S. population for context (e.g. 500k -> 0.15%)
+            try:
+                n_individuals = float(individuals) if individuals is not None else 0.0
+                pct_pop = (n_individuals / 330_000_000) * 100
+                pct_text = f"Approximately {pct_pop:.2f}% of the U.S. population"
+            except (TypeError, ValueError, ZeroDivisionError):
+                pct_text = ""
+            if pct_text:
+                st.markdown(
+                    f"<div style='color:{COLORS['text_secondary']}; margin-top:0.1rem; font-size:0.8rem;'>"
+                    f"{pct_text}</div>",
+                    unsafe_allow_html=True,
+                )
             st.markdown(
                 f"<div style='color:{COLORS['text_secondary']}; margin-top:0.1rem;'>"
-                f"Business associate present: {ba_display}</div>",
+                f"Involved a third-party vendor: {ba_display}</div>",
                 unsafe_allow_html=True,
             )
 
         with col_right:
             st.markdown(
                 f"<div style='font-size:0.75rem; text-transform:uppercase; "
-                f"letter-spacing:0.08em; color:{COLORS['text_secondary']};'>Timeline</div>",
+                f"letter-spacing:0.08em; color:#CBD5F5;'>Timeline</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
@@ -178,25 +207,29 @@ def render_breach_detail_card(
 
             st.markdown(
                 f"<div style='font-size:0.75rem; text-transform:uppercase; "
-                f"letter-spacing:0.08em; color:{COLORS['text_secondary']}; "
+                f"letter-spacing:0.08em; color:#CBD5F5; "
                 f"margin-top:0.75rem;'>Classification</div>",
                 unsafe_allow_html=True,
             )
+            # Plain-language labels for non-technical users
             st.markdown(
                 f"<div style='color:{COLORS['text_primary']};'>"
-                f"Breach type: <strong>{breach_type}</strong></div>",
+                f"Cause: <strong>{'Cyberattack' if breach_type == 'Hacking/IT Incident' else breach_type}</strong></div>",
                 unsafe_allow_html=True,
             )
-            st.markdown(
-                f"<div style='color:{COLORS['text_primary']}; margin-top:0.1rem;'>"
-                f"Attack vector: <strong>{attack_category_display}</strong></div>",
-                unsafe_allow_html=True,
-            )
+            # Only show attack vector when it conveys useful information
+            if attack_category_display.lower() != "unknown":
+                st.markdown(
+                    f"<div style='color:{COLORS['text_primary']}; margin-top:0.1rem;'>"
+                    f"Attack vector: <strong>{attack_category_display}</strong></div>",
+                    unsafe_allow_html=True,
+                )
             st.markdown(
                 f"<div style='color:{COLORS['text_secondary']}; margin-top:0.1rem;'>"
-                f"Location: {breach_location}</div>",
+                f"Compromised System: {breach_location}</div>",
                 unsafe_allow_html=True,
             )
 
-        st.markdown("</div>", unsafe_allow_html=True)
+        if show_frame:
+            st.markdown("</div>", unsafe_allow_html=True)
 
