@@ -6,7 +6,7 @@ shap==0.46.0
 # Prophet: use 1.2.1+ and cmdstanpy<1.3 for clean install (avoids stan_backend AttributeError, facebook/prophet#2462)
 cmdstanpy>=1.2.0,<1.3.0
 prophet>=1.2.1
-nltk==3.9.1
+nltk==3.9.4
 plotly==5.24.1
 folium==0.18.0
 streamlit==1.40.2
