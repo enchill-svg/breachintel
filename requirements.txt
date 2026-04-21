@@ -13,7 +13,7 @@ streamlit==1.40.2
 streamlit-folium==0.23.1
 pandera==0.20.4
 joblib==1.4.2
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 requests==2.32.3
 loguru==0.7.3
 -e .
